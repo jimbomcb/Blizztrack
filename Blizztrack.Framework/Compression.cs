@@ -161,32 +161,40 @@ namespace Blizztrack.Framework
                 var discardSpan = discardBuffer.AsSpan(Math.Min(2048, discardOutput));
 
                 // Discard as many bytes as required.
-                while (discardOutput > 0 && returnCode != Z_STREAM_END)
+                while (discardOutput > 0 && returnCode != Z_STREAM_END && returnCode >= 0)
                 {
                     // Reset the output buffer
                     stream.Output = discardSpan;
 
                     // Process until done discarding this chunk, or if the input is empty
-                    while (!stream.Output.IsEmpty && returnCode != Z_STREAM_END)
+                    while (!stream.Output.IsEmpty && returnCode != Z_STREAM_END && returnCode >= 0)
+                    {
                         returnCode = Inflate(ref stream, Z_NO_FLUSH);
+                    }
 
                     discardOutput -= discardSpan.Length;
+                }
+
+                if (returnCode < 0)
+                {
+                    InflateEnd(ref stream);
+                    return false;
                 }
             }
 
             stream.Output = output;
-            while (!stream.Input.IsEmpty && returnCode != Z_STREAM_END)
+            while (!stream.Input.IsEmpty && returnCode != Z_STREAM_END && returnCode >= 0)
             {
                 returnCode = Inflate(ref stream, Z_NO_FLUSH);
                 if (returnCode < 0)
                 {
-                    returnCode = InflateEnd(ref stream);
+                    InflateEnd(ref stream);
                     return false;
                 }
             }
 
             returnCode = InflateEnd(ref stream);
-            return returnCode == Z_OK;
+            return returnCode == Z_OK || returnCode == Z_STREAM_END;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
