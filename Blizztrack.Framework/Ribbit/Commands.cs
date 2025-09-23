@@ -2,7 +2,6 @@
 using Blizztrack.Framework.TACT.Configuration;
 
 using System.Buffers;
-using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -12,6 +11,8 @@ namespace Blizztrack.Framework.Ribbit
 
     public static class Commands
     {
+        private static readonly HttpClient _httpClient = new();
+
         /// <summary>
         /// Asynchronously queries a Ribbit endpoint for a set of <see cref="Summary"/> objets.
         /// </summary>
@@ -112,7 +113,7 @@ namespace Blizztrack.Framework.Ribbit
                         "cdn" => SequenceNumberType.CDN,
                         "bgdl" => SequenceNumberType.BGDL,
                         "" => SequenceNumberType.Version,
-                        string value => throw new InvalidOperationException("Unknown flag value '{value}'"),
+                        string value => throw new InvalidOperationException($"Unknown flag value '{value}'"),
                     }; break;
                     default: throw new InvalidOperationException($"{columnName} is not a valid column name for a 'summary' PSV file.");
                 }
@@ -196,29 +197,29 @@ namespace Blizztrack.Framework.Ribbit
         private static async IAsyncEnumerable<ArraySegment<byte>> OpenNetwork(string host, int port, string command,
             int bufferSize = 1024, [EnumeratorCancellation] CancellationToken stoppingToken = default)
         {
-            using var client = new Socket(SocketType.Stream, ProtocolType.Tcp);
-            await client.ConnectAsync(host, port, stoppingToken).ConfigureAwait(false);
-            var writeCount = await client.SendAsync(Encoding.UTF8.GetBytes(command), stoppingToken).ConfigureAwait(false);
-            await client.SendAsync("\n"u8.ToArray(), stoppingToken).ConfigureAwait(false);
-
+            using var response = await _httpClient.GetAsync($"http://{host}:{port}/{command}", HttpCompletionOption.ResponseHeadersRead, stoppingToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            
+            using var contentStream = await response.Content.ReadAsStreamAsync(stoppingToken).ConfigureAwait(false);
+            
             var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
-            var memoryBuffer = new Memory<byte>(buffer);
             try
             {
                 int writeOffset = 0;
                 int bytesRead;
-                while ((bytesRead = await client.ReceiveAsync(memoryBuffer[writeOffset..], stoppingToken).ConfigureAwait(false)) != 0)
+                while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(writeOffset, bufferSize - writeOffset), stoppingToken).ConfigureAwait(false)) != 0)
                 {
                     if (bytesRead + writeOffset >= bufferSize)
                     {
-                        yield return buffer;
+                        yield return new ArraySegment<byte>(buffer, 0, bufferSize);
                         writeOffset = 0;
                     }
                     else
                         writeOffset += bytesRead;
                 }
 
-                yield return buffer[..writeOffset];
+                if (writeOffset > 0)
+                    yield return new ArraySegment<byte>(buffer, 0, writeOffset);
             }
             finally
             {
