@@ -137,7 +137,10 @@ namespace Blizztrack.Framework.TACT.Implementation
                     var dataSpan = inputBuffer.Span;
                     corrector(ref _chunks[i], dataSpan[0]);
 
-                    _chunks[i].Parser(dataSpan[1..], outputBuffer.AsSpan(outputRange), 0);
+                    if (_chunks[i].IsEncrypted)
+                        ParseEncryptedChunk(dataSpan[1..], outputBuffer.AsSpan(outputRange), i);
+                    else
+                        _chunks[i].Parser(dataSpan[1..], outputBuffer.AsSpan(outputRange), 0);
                 }
             }
 
@@ -151,8 +154,9 @@ namespace Blizztrack.Framework.TACT.Implementation
             static unsafe void updateChunk(ref ChunkInfo chunk, byte compressionByte)
                 => chunk.Parser = compressionByte switch {
                     (byte)'N' => &ParseImmediate,
-                    (byte)'Z' => &ParseImmediate,
-                    _ => throw new NotImplementedException(),
+                    (byte)'Z' => &ParseCompressed,
+                    (byte)'E' => throw new InvalidOperationException("Encrypted chunks should already be marked during schema parsing"),
+                    _ => throw new NotImplementedException($"Unsupported compression mode: {(char)compressionByte}"),
                 };
 
             static Memory<byte> getInputBuffer(int compressedChunkSize, int decompressedChunkEnd, byte[] outputBuffer, long decompressedSize)
@@ -174,10 +178,17 @@ namespace Blizztrack.Framework.TACT.Implementation
             private int _decompressedCursor = 0;
 
             public void BeginEncryption(string key, string iv)
-                => throw new NotImplementedException("Encrypted BLTEs are not supported.");
+            {
+                ref var currentChunk = ref _chunks[_chunkIndex];
+                currentChunk.IsEncrypted = true;
+                currentChunk.EncryptionKeyName = Convert.ToUInt64(key, 16);
+                currentChunk.EncryptionIV = Convert.FromHexString(iv);
+            }
             
             public void EndEncryption()
-                => throw new NotImplementedException("Encrypted BLTEs are not supported.");
+            {
+                // Chunks retain their encryption info
+            }
 
             public unsafe void OnCompressedChunk(int level, int windowBits, int chunkSize)
             {
@@ -247,12 +258,119 @@ namespace Blizztrack.Framework.TACT.Implementation
             for (var i = 0; i < _chunks.Length; ++i)
             {
                 ref var currentChunk = ref _chunks[i];
-                currentChunk.Parser(inputData[currentChunk.Compressed], dataBuffer.AsSpan(currentChunk.Decompressed), 0);
+                var inputSpan = inputData[currentChunk.Compressed];
+                var outputSpan = dataBuffer.AsSpan(currentChunk.Decompressed);
+                
+                if (currentChunk.IsEncrypted)
+                {
+                    ParseEncryptedChunk(inputSpan, outputSpan, i);
+                }
+                else if (currentChunk.Parser != null)
+                {
+                    currentChunk.Parser(inputSpan, outputSpan, 0);
+                }
+                else
+                {
+                    // Handle degraded chunks - read compression byte and parse accordingly
+                    var compressionByte = inputSpan[0];
+                    var actualData = inputSpan[1..];
+                    
+                    switch ((char)compressionByte)
+                    {
+                        case 'N':
+                            ParseImmediate(actualData, outputSpan, 0);
+                            break;
+                        case 'Z':
+                            ParseCompressed(actualData, outputSpan, 0);
+                            break;
+                        case 'E':
+                            ParseEncryptedChunk(inputSpan, outputSpan, i);
+                            break;
+                        default:
+                            throw new NotImplementedException($"Unsupported compression mode: {(char)compressionByte}");
+                    }
+                }
             }
 
             return dataBuffer;
         }
         #endregion
+
+        private static void ParseEncryptedChunk(ReadOnlySpan<byte> input, Span<byte> output, int chunkIndex)
+        {
+            var decryptedData = TryDecrypt(input, chunkIndex);
+            
+            // follow encoding of newly decrypted data
+            switch ((char)decryptedData[0])
+            {
+                case 'N':
+                    // Skip the compression mode byte, no discardOutput needed
+                    ParseImmediate(decryptedData[1..], output, 0);
+                    break;
+                case 'Z':
+                    // Skip the compression mode byte, no discardOutput needed  
+                    ParseCompressed(decryptedData[1..], output, 0);
+                    break;
+                default:
+                    throw new NotSupportedException($"Unsupported compression mode in encrypted chunk: {decryptedData[0]}");
+            }
+        }
+
+        /// <summary>
+        /// Based on the TACTSharp implementation
+        /// </summary>
+        private static Span<byte> TryDecrypt(ReadOnlySpan<byte> data, int chunkIndex)
+        {
+            static void ThrowInvalidDataFormat(string message) =>
+                throw new ArgumentException($"Invalid encrypted chunk format: {message}", nameof(data));
+
+            if (data.Length < 10) // Minimum: 1 keyNameSize + 8 keyName + 1 IVSize
+                ThrowInvalidDataFormat("Insufficient data length for encrypted chunk header");
+
+            var keyNameSize = data[0];
+            if (keyNameSize != 8)
+                ThrowInvalidDataFormat($"Expected key name size of 8 bytes, got {keyNameSize}");
+
+            var keyName = BinaryPrimitives.ReadUInt64LittleEndian(data[1..9]);
+            if (!TACTKeyService.TryGetKey(keyName, out var key))
+                throw new InvalidOperationException($"Decryption failed: missing key {keyName:X16}");
+
+            var ivSize = data[9];
+            if (ivSize is not (4 or 16) || data.Length < 12 + ivSize)
+                ThrowInvalidDataFormat($"Invalid IV size {ivSize} or insufficient data");
+
+            // Copy IV data
+            byte[] iv = data.Slice(10, ivSize).ToArray();
+            Array.Resize(ref iv, 8);
+            
+            var encryptionTypeOffset = 10 + ivSize;
+            if (data.Length <= encryptionTypeOffset)
+                ThrowInvalidDataFormat("Missing encryption type indicator");
+
+            var encryptionType = (char)data[encryptionTypeOffset];
+            
+            // Calculate data offset: keyNameSize(1) + keyName(8) + ivSize(1) + iv(N) + encType(1) = 1 + 8 + 1 + ivSize + 1
+            int dataOffset = 1 + keyNameSize + 1 + ivSize + 1;
+            
+            if (data.Length <= dataOffset)
+                ThrowInvalidDataFormat("No encrypted payload data found");
+
+            // Apply chunk index XOR to IV
+            for (int shift = 0, i = 0; i < sizeof(int); shift += 8, i++)
+            {
+                iv[i] ^= (byte)((chunkIndex >> shift) & 0xFF);
+            }
+
+            var encryptedDataLength = data.Length - dataOffset;
+            return encryptionType switch
+            {
+                'S' => TACTKeyService.SalsaInstance
+                    .CreateDecryptor(key, iv)
+                    .TransformFinalBlock(data, dataOffset, encryptedDataLength),
+                'A' => throw new NotSupportedException("ARC4 encryption is not implemented"),
+                _ => throw new NotSupportedException($"Unknown encryption type: '{encryptionType}' (0x{(byte)encryptionType:X2})")
+            };
+        }
 
         /// <summary>
         /// Extracts the <paramref name="dataRange"/> bytes out of the <paramref name="resourceHandle"/>.
@@ -284,7 +402,18 @@ namespace Blizztrack.Framework.TACT.Implementation
                 var input = inputData[currentChunk.Compressed];
                 var output = dataBuffer.AsSpan().Slice(offset, length);
 
-                currentChunk.Parser(input, output, offset);
+                if (currentChunk.IsEncrypted)
+                {
+                    // Decrypt the full chunk and copy
+                    var tempOutput = GC.AllocateUninitializedArray<byte>(currentChunk.DecompressedSize);
+                    ParseEncryptedChunk(input, tempOutput, i);
+                    tempOutput.AsSpan().Slice(offset, length).CopyTo(output);
+                }
+                else
+                {
+                    currentChunk.Parser(input, output, offset);
+                }
+                
                 // Update the remainder. It's faster to do this than re-calculating an intersection.
                 decompressedLength -= length;
             }
@@ -454,6 +583,12 @@ namespace Blizztrack.Framework.TACT.Implementation
                     case (byte)'Z':
                         currentChunk.Parser = &ParseCompressed;
                         break;
+                    case (byte)'E':
+                        // For encrypted chunks, we'll set the parser to null and mark as encrypted
+                        // The actual decryption and parsing will happen at read time
+                        currentChunk.Parser = null;
+                        currentChunk.IsEncrypted = true;
+                        break;
                     case (byte)'F':
                         var (_, nestedChunks, _) = ParseHeader(fileData[currentChunk.Compressed], currentChunk.Compressed.Start.Value, currentChunk.Decompressed.Start.Value);
 
@@ -483,6 +618,10 @@ namespace Blizztrack.Framework.TACT.Implementation
             public readonly Range Decompressed = decompressed;
 
             public delegate*<ReadOnlySpan<byte>, Span<byte>, int /* discardOutput */, void> Parser = parser;
+            
+            public bool IsEncrypted = false;
+            public ulong EncryptionKeyName;
+            public byte[]? EncryptionIV;
 
             public readonly int CompressedSize => Compressed.End.Value - Compressed.Start.Value;
             public readonly int DecompressedSize => Decompressed.End.Value - Decompressed.Start.Value;
