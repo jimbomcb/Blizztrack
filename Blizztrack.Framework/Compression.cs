@@ -148,49 +148,53 @@ namespace Blizztrack.Framework
 
         public bool Decompress(ReadOnlySpan<byte> input, Span<byte> output, int discardOutput = 0, int windowBits = 15)
         {
-            Stream stream = new(input, output);
+            Stream stream = new (input, output);
             var returnCode = InitializeInflate(ref stream, windowBits);
-
+            
             if (returnCode != Z_OK)
                 return false;
 
-            try
+            if (discardOutput > 0)
             {
-                returnCode = DiscardOutputBytes(ref stream, discardOutput, returnCode);
-                if (returnCode < 0) 
+                // Start by discarding the front of the output
+                var discardBuffer = GC.AllocateUninitializedArray<byte>(2048);
+                var discardSpan = discardBuffer.AsSpan(Math.Min(2048, discardOutput));
+
+                // Discard as many bytes as required.
+                while (discardOutput > 0 && returnCode != Z_STREAM_END && returnCode >= 0)
+                {
+                    // Reset the output buffer
+                    stream.Output = discardSpan;
+
+                    // Process until done discarding this chunk, or if the input is empty
+                    while (!stream.Output.IsEmpty && returnCode != Z_STREAM_END && returnCode >= 0)
+                    {
+                        returnCode = Inflate(ref stream, Z_NO_FLUSH);
+                    }
+
+                    discardOutput -= discardSpan.Length;
+                }
+
+                if (returnCode < 0)
+                {
+                    InflateEnd(ref stream);
                     return false;
-
-                stream.Output = output;
-                while (!stream.Input.IsEmpty && returnCode >= 0 && returnCode != Z_STREAM_END)
-                    returnCode = Inflate(ref stream, Z_NO_FLUSH);
-
-                return returnCode >= 0;
+                }
             }
-            finally
+
+            stream.Output = output;
+            while (!stream.Input.IsEmpty && returnCode != Z_STREAM_END && returnCode >= 0)
             {
-                InflateEnd(ref stream);
-            }
-        }
-
-        private int DiscardOutputBytes(ref Stream stream, int discardOutput, int returnCode)
-        {
-            if (discardOutput <= 0) 
-                return returnCode;
-
-            var discardBuffer = GC.AllocateUninitializedArray<byte>(Math.Min(8192, discardOutput));
-            while (discardOutput > 0 && returnCode >= 0 && returnCode != Z_STREAM_END)
-            {
-                var chunkSize = Math.Min(discardBuffer.Length, discardOutput);
-                stream.Output = discardBuffer.AsSpan(0, chunkSize);
-                var initialLength = stream.Output.Length;
-
-                while (!stream.Output.IsEmpty && returnCode >= 0 && returnCode != Z_STREAM_END)
-                    returnCode = Inflate(ref stream, Z_NO_FLUSH);
-
-                discardOutput -= initialLength - stream.Output.Length;
+                returnCode = Inflate(ref stream, Z_NO_FLUSH);
+                if (returnCode < 0)
+                {
+                    InflateEnd(ref stream);
+                    return false;
+                }
             }
 
-            return returnCode;
+            returnCode = InflateEnd(ref stream);
+            return returnCode == Z_OK || returnCode == Z_STREAM_END;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
