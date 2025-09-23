@@ -16,7 +16,7 @@ namespace Blizztrack.Framework.TACT.Implementation
     {
         private readonly Page[] _pages;
 
-        public static readonly Locale AllWoW = Locale.enUS
+        public const Locale AllWoW = Locale.enUS
             | Locale.koKR
             | Locale.frFR
             | Locale.deDE
@@ -138,11 +138,16 @@ namespace Blizztrack.Framework.TACT.Implementation
         /// Finds a file given a file data ID.
         /// </summary>
         /// <param name="fileDataID">The file data ID to look for.</param>
+        /// <param name="localeFilter">Limit search to pages of a specific locale.</param>
         /// <returns>An optional record as well as the associated content and locale flags.</returns>
-        public ref readonly RootRecord FindFileDataID(uint fileDataID)
+        public ref readonly RootRecord FindFileDataID(uint fileDataID, Locale localeFilter)
         {
             foreach (ref readonly var page in _pages.AsSpan())
             {
+                // Skip pages that have no overlap with the locale filter
+                if ((page.Header.LocaleFlags & localeFilter) == 0)
+                    continue;
+
                 var fdidIndex = page.Records.BinarySearchBy((ref RootRecord record) => (record.FileDataID - (int)fileDataID).ToOrdering());
                 if (fdidIndex == -1)
                     continue;

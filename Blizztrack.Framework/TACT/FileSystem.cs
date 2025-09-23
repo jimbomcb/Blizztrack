@@ -30,7 +30,7 @@ namespace Blizztrack.Framework.TACT
         /// </summary>
         /// <param name="fileDataID">An unique identifier for the file to look for.</param>
         /// <returns>A collection of resource descriptors.</returns>
-        public ResourceDescriptor[] OpenFDID(uint fileDataID);
+        public ResourceDescriptor[] OpenFDID(uint fileDataID, Locale localeFilter);
 
         /// <summary>
         /// Retrieves every resource descriptor that corresponds to a given content key.
@@ -72,13 +72,13 @@ namespace Blizztrack.Framework.TACT
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ResourceDescriptor[] OpenFDID(uint fileDataID)
+        public ResourceDescriptor[] OpenFDID(uint fileDataID, Locale localeFilter)
         {
             if (_root == default)
                 return [];
 
             // TODO: Smell: MD5 != IContentKey<MD5>.
-            ref readonly var rootResult = ref _root.FindFileDataID(fileDataID);
+            ref readonly var rootResult = ref _root.FindFileDataID(fileDataID, localeFilter);
             if (Unsafe.IsNullRef(in rootResult))
                 return [];
 
@@ -150,7 +150,7 @@ namespace Blizztrack.Framework.TACT
 
         public ResourceDescriptor[] Open(string filePath) => _implementation.Open(filePath);
 
-        public ResourceDescriptor[] OpenFDID(uint fileDataID) => _implementation.OpenFDID(fileDataID);
+        public ResourceDescriptor[] OpenFDID(uint fileDataID, Locale localeFilter) => _implementation.OpenFDID(fileDataID, localeFilter);
 
         public ResourceDescriptor[] OpenContentKey(in Views.ContentKey contentKey)
             => _implementation.OpenContentKey(in contentKey);
@@ -185,8 +185,8 @@ namespace Blizztrack.Framework.TACT
 
         public ResourceDescriptor[] Open(string filePath) => _implementation.Open(filePath);
 
-        public ResourceDescriptor[] OpenFDID(uint fileDataID)
-            => _implementation.OpenFDID(fileDataID);
+        public ResourceDescriptor[] OpenFDID(uint fileDataID, Locale localeFilter)
+            => _implementation.OpenFDID(fileDataID, localeFilter);
 
         public ResourceDescriptor[] OpenContentKey(in Views.ContentKey contentKey)
             => _implementation.OpenContentKey(in contentKey);
