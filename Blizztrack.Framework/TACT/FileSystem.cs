@@ -1,4 +1,5 @@
-﻿using Blizztrack.Framework.TACT.Implementation;
+﻿using Blizztrack.Framework.TACT.Enums;
+using Blizztrack.Framework.TACT.Implementation;
 using Blizztrack.Framework.TACT.Resources;
 
 using Pidgin;
@@ -45,6 +46,9 @@ namespace Blizztrack.Framework.TACT
         /// <param name="encodingKey">The encoding key to look for.</param>
         /// <returns>A resource descriptor.</returns>
         public ResourceDescriptor OpenEncodingKey(in Views.EncodingKey encodingKey);
+
+        // todo: doc/better expose elsewhere?
+        public Views.EncodingKey GetFDIDContentKey(uint fileDataID);
     }
 
     internal readonly struct BaseFileSystem<AT, FT>(string product, AT archiveIndices, Encoding? encoding = default, Root? root = default, Install? install = default, FT? fileIndex = default)
@@ -132,6 +136,21 @@ namespace Blizztrack.Framework.TACT
 
             return encodingSpec.GetSpecificationString(_encoding);
         }
+
+
+        // todo: doc/better expose elsewhere?
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Views.EncodingKey GetFDIDContentKey(uint fileDataID, Locale localeFilter = Root.AllWoW)
+        {
+            if (_root == default)
+                return default;
+
+            ref readonly var rootResult = ref _root.FindFileDataID(fileDataID, localeFilter);
+            if (Unsafe.IsNullRef(in rootResult))
+                return default;
+
+            return new Views.EncodingKey(rootResult.ContentKey);
+        }
     }
 
     /// <summary>
@@ -160,6 +179,10 @@ namespace Blizztrack.Framework.TACT
 
         public string? GetCompressionSpec(in Views.EncodingKey encodingKey)
             => _implementation.GetCompressionSpec(in encodingKey);
+
+        // todo: doc/better expose elsewhere?
+        public Views.EncodingKey GetFDIDContentKey(uint fileDataID)
+            => _implementation.GetFDIDContentKey(fileDataID);
     }
 
     /// <summary>
@@ -196,5 +219,9 @@ namespace Blizztrack.Framework.TACT
 
         public string? GetCompressionSpec(in Views.EncodingKey encodingKey)
             => _implementation.GetCompressionSpec(in encodingKey);
+
+        // todo: doc/better expose elsewhere?
+        public Views.EncodingKey GetFDIDContentKey(uint fileDataID)
+            => _implementation.GetFDIDContentKey(fileDataID);
     }
 }

@@ -43,6 +43,8 @@ namespace Blizztrack.Framework.TACT
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool operator !(EncodingKey self) => !self._data.AsSpan().ContainsAnyExcept([(byte)0]);
+
+        public override string ToString() => AsHexString();
     }
 
     public static class EncodingKeyExtensions
@@ -83,6 +85,8 @@ namespace Blizztrack.Framework.TACT
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public static bool operator !(EncodingKey self) => !self._data.ContainsAnyExcept([(byte)0]);
+            public override string ToString() => AsHexString();
+
         }
     }
 

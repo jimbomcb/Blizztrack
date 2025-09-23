@@ -42,6 +42,8 @@ namespace Blizztrack.Framework.TACT
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool operator !(ContentKey self) => !self._data.AsSpan().ContainsAnyExcept([(byte)0]);
+        public override string ToString() => AsHexString();
+
     }
 
     public static class ContentKeyExtensions
@@ -83,6 +85,7 @@ namespace Blizztrack.Framework.TACT
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public static bool operator !(ContentKey self) => !self._data.ContainsAnyExcept([(byte)0]);
+            public override string ToString() => AsHexString();
         }
     }
 
