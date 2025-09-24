@@ -510,7 +510,7 @@ namespace Blizztrack.Framework.TACT.Implementation
             => input.Slice(discardCount, output.Length).CopyTo(output);
 
         private static void ParseCompressed(ReadOnlySpan<byte> input, Span<byte> output, int discardCount)
-            => Compression.Instance.Decompress(input, output, discardCount, windowBits: 15);
+            => CompressionSlow.Instance.Decompress(input, output, discardCount, windowBits: 15);
         #endregion
 
         /// <summary>
