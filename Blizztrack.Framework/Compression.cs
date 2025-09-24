@@ -83,7 +83,7 @@ namespace Blizztrack.Framework
                     return NativeLibrary.Load("libSystem.IO.Compression.Native.dylib");
 
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                    return NativeLibrary.Load("System.IO.Compression.Native.so");
+                    return NativeLibrary.Load("libSystem.IO.Compression.Native.so");
 
                 return nint.Zero;
             }
