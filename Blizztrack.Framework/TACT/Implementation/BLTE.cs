@@ -333,7 +333,7 @@ namespace Blizztrack.Framework.TACT.Implementation
 
             var keyName = BinaryPrimitives.ReadUInt64LittleEndian(data[1..9]);
             if (!TACTKeyService.TryGetKey(keyName, out var key))
-                throw new InvalidOperationException($"Decryption failed: missing key {keyName:X16}");
+                throw new DecryptionKeyMissingException(keyName);
 
             var ivSize = data[9];
             if (ivSize is not (4 or 16) || data.Length < 12 + ivSize)
@@ -628,5 +628,11 @@ namespace Blizztrack.Framework.TACT.Implementation
 
             internal readonly string DebuggerDisplay => $"{Compressed} -> {Decompressed}";
         }
+    }
+
+    public class DecryptionKeyMissingException(ulong key) : Exception($"Decryption failed, key '{key:X16}' missing")
+    {
+        public ulong ExpectedKey { get; } = key;
+        public string ExpectedKeyString => ExpectedKey.ToString("X16");
     }
 }
