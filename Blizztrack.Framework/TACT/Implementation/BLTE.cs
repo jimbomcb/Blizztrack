@@ -457,7 +457,7 @@ namespace Blizztrack.Framework.TACT.Implementation
             EnsureSchemaValidity(chunks, decompressedSize);
 
             var checksumMatches = !requiresChecksum || encodingKey.SequenceEqual(expectedChecksum);
-            var sizeMatches = decompressedSize != 0 && chunks[^1].Decompressed.End.Value == decompressedSize;
+            var sizeMatches = decompressedSize == 0 || (chunks.Length > 0 && chunks[^1].Decompressed.End.Value == decompressedSize);
 
             if (chunks.Length == 0 || !checksumMatches || !sizeMatches)
                 return default;
