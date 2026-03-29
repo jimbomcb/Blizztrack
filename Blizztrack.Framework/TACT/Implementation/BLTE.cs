@@ -351,7 +351,7 @@ namespace Blizztrack.Framework.TACT.Implementation
                 throw new DecryptionKeyMissingException(keyName);
 
             var ivSize = data[9];
-            if (ivSize is not (4 or 16) || data.Length < 12 + ivSize)
+            if (ivSize is not (4 or 8 or 16) || data.Length < 12 + ivSize)
                 ThrowInvalidDataFormat($"Invalid IV size {ivSize} or insufficient data");
 
             // Copy IV data
