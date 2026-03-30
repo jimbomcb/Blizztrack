@@ -311,10 +311,25 @@ namespace Blizztrack.Framework.TACT.Implementation
         }
         #endregion
 
-        private static void ParseEncryptedChunk(ReadOnlySpan<byte> input, Span<byte> output, int chunkIndex)
+        private static void ParseEncryptedChunk(ReadOnlySpan<byte> input, Span<byte> output, int chunkIndex, int totalChunks = 1)
         {
-            var decryptedData = TryDecrypt(input, chunkIndex);
-            
+            Span<byte> decryptedData;
+            try
+            {
+                decryptedData = TryDecrypt(input, chunkIndex);
+            }
+            catch (DecryptionKeyMissingException)
+            {
+                // multi-chunk files can have encrypted padding/trailing chunks that aren't needed for parsing.
+                // zero-fill and continue for now. unsure how to best handle this otherwise in my project.
+                // single-chunk files that are fully encrypted should still throw.
+                if (totalChunks <= 1)
+                    throw;
+
+                output.Clear();
+                return;
+            }
+
             // follow encoding of newly decrypted data
             switch ((char)decryptedData[0])
             {
@@ -323,7 +338,7 @@ namespace Blizztrack.Framework.TACT.Implementation
                     ParseImmediate(decryptedData[1..], output, 0);
                     break;
                 case 'Z':
-                    // Skip the compression mode byte, no discardOutput needed  
+                    // Skip the compression mode byte, no discardOutput needed
                     ParseCompressed(decryptedData[1..], output, 0);
                     break;
                 default:
