@@ -293,8 +293,8 @@ namespace Blizztrack.Shared.Extensions
                 size = right - left;
             }
 
-            Debug.Assert(left <= array.Length);
-            return left;
+            Debug.Assert(left == array.Length);
+            return -1;
         }
     }
 }
