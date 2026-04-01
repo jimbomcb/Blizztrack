@@ -278,7 +278,7 @@ namespace Blizztrack.Framework.TACT.Implementation
                 
                 if (currentChunk.IsEncrypted)
                 {
-                    ParseEncryptedChunk(inputSpan, outputSpan, i);
+                    ParseEncryptedChunk(inputSpan, outputSpan, i, _chunks.Length);
                 }
                 else if (currentChunk.Parser != null)
                 {
@@ -289,7 +289,7 @@ namespace Blizztrack.Framework.TACT.Implementation
                     // Handle degraded chunks - read compression byte and parse accordingly
                     var compressionByte = inputSpan[0];
                     var actualData = inputSpan[1..];
-                    
+
                     switch ((char)compressionByte)
                     {
                         case 'N':
@@ -299,7 +299,7 @@ namespace Blizztrack.Framework.TACT.Implementation
                             ParseCompressed(actualData, outputSpan, 0);
                             break;
                         case 'E':
-                            ParseEncryptedChunk(inputSpan, outputSpan, i);
+                            ParseEncryptedChunk(inputSpan, outputSpan, i, _chunks.Length);
                             break;
                         default:
                             throw new NotImplementedException($"Unsupported compression mode: {(char)compressionByte}");
@@ -436,7 +436,7 @@ namespace Blizztrack.Framework.TACT.Implementation
                 {
                     // Decrypt the full chunk and copy
                     var tempOutput = GC.AllocateUninitializedArray<byte>(currentChunk.DecompressedSize);
-                    ParseEncryptedChunk(input, tempOutput, i);
+                    ParseEncryptedChunk(input, tempOutput, i, _chunks.Length);
                     tempOutput.AsSpan().Slice(offset, length).CopyTo(output);
                 }
                 else
